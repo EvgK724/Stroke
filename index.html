@@ -112,7 +112,7 @@
   .search{background:var(--paper);border-bottom:1px solid var(--line);padding:var(--s2) 0}
   .search__in{display:flex;gap:var(--s2);align-items:baseline;flex-wrap:wrap}
   .search input{
-    flex:1 1 300px;font:inherit;font-size:19px;padding:12px 16px;border-radius:12px;
+    flex:1 1 300px;min-width:0;width:100%;font:inherit;font-size:19px;padding:12px 16px;border-radius:12px;
     border:1px solid var(--line);background:var(--field);color:var(--ink);
   }
   .search input::placeholder{color:var(--ink-3)}
@@ -287,8 +287,9 @@
 
 <div class="search">
   <div class="wrap search__in">
-    <input id="q" type="search" placeholder="Поиск: «Горнер», «гемианопсия», «PICA», «парез взора»…" aria-label="Поиск по симптому или синдрому">
-    <span id="count"></span>
+    <input id="q" type="search" placeholder="Поиск: «Горнер», «гемианопсия», «PICA», «парез взора»…" aria-label="Поиск по симптому или синдрому" aria-describedby="count" enterkeyhint="search" autocomplete="off" spellcheck="false">
+    <button class="toggle hidden" id="clear-search" type="button">Сбросить поиск</button>
+    <span id="count" role="status" aria-live="polite" aria-atomic="true"></span>
   </div>
 </div>
 
@@ -1304,35 +1305,69 @@
 (function(){
   var q = document.getElementById('q');
   var count = document.getElementById('count');
-  var cards = Array.prototype.slice.call(document.querySelectorAll('.syn'));
+  var clearSearch = document.getElementById('clear-search');
+  var itemSelector = '.syn, .key, .index__row';
+  var items = Array.prototype.slice.call(document.querySelectorAll(itemSelector));
   var sections = Array.prototype.slice.call(document.querySelectorAll('section'));
 
-  cards.forEach(function(c){ c.dataset.text = c.textContent.toLowerCase(); });
+  function normalize(text){
+    return text.toLowerCase().replace(/ё/g, 'е')
+      .replace(/[^a-zа-я0-9]+/g, ' ').trim();
+  }
+
+  // Keep text from adjacent headings, symptoms and facts separated by spaces.
+  var entries = items.map(function(item){
+    var walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    var parts = [];
+    while(walker.nextNode()) parts.push(walker.currentNode.nodeValue);
+    return { element: item, text: normalize(parts.join(' ')) };
+  });
 
   function apply(){
-    var v = q.value.trim().toLowerCase();
-    if(!v){
-      cards.forEach(function(c){ c.classList.remove('hidden'); });
-      sections.forEach(function(s){ s.classList.remove('hidden'); });
-      count.textContent = '';
-      return;
-    }
+    var value = normalize(q.value);
+    var terms = value ? value.split(' ') : [];
     var n = 0;
-    cards.forEach(function(c){
-      var hit = c.dataset.text.indexOf(v) !== -1;
-      c.classList.toggle('hidden', !hit);
+    entries.forEach(function(entry){
+      var hit = terms.every(function(term){ return entry.text.indexOf(term) !== -1; });
+      entry.element.classList.toggle('hidden', !hit);
       if(hit) n++;
     });
     sections.forEach(function(s){
-      var has = s.querySelectorAll('.syn').length;
-      if(!has) return;
-      var vis = s.querySelectorAll('.syn:not(.hidden)').length;
-      s.classList.toggle('hidden', vis === 0);
+      var sectionItems = Array.prototype.slice.call(s.querySelectorAll(itemSelector));
+      var visible = sectionItems.some(function(item){ return !item.classList.contains('hidden'); });
+      s.classList.toggle('hidden', terms.length > 0 && !visible);
     });
-    count.textContent = n ? ('Найдено: ' + n) : 'Ничего не найдено — попробуйте другое слово';
+    clearSearch.classList.toggle('hidden', !q.value);
+    count.textContent = !terms.length ? '' : n ? ('Найдено: ' + n) : 'Ничего не найдено — попробуйте другое слово';
+  }
+
+  function resetSearch(){
+    q.value = '';
+    apply();
   }
 
   q.addEventListener('input', apply);
+  q.addEventListener('search', apply);
+  q.addEventListener('change', apply);
+  q.addEventListener('keydown', function(event){
+    if(event.key === 'Escape'){
+      resetSearch();
+    }else if(event.key === 'Enter'){
+      event.preventDefault();
+      apply();
+      q.blur();
+    }
+  });
+  clearSearch.addEventListener('click', function(){
+    resetSearch();
+    q.focus();
+  });
+  document.querySelectorAll('.nav a[href^="#"]').forEach(function(link){
+    link.addEventListener('click', resetSearch);
+  });
+  // Browsers can restore the search field when returning to the app.
+  window.addEventListener('pageshow', apply);
+  apply();
 
   var root = document.documentElement;
   var btn = document.getElementById('theme');
